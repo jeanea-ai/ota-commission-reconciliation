@@ -16,6 +16,12 @@ time**, by searching the guest's name and reading that reservation's guest
 folio. It confirms the numbers on the PDF are accurate and reports a clean
 summary table.
 
+Ambiguous matches are never guessed: when multiple reservations match the same
+name/date criteria, the report lists every candidate Choice Advantage account
+number and marks the row for review. Runs checkpoint completed source rows,
+deliver a partial PDF if interrupted, and resume without dropping duplicate
+statement rows.
+
 ## Documents
 
 | File | Purpose |
@@ -25,7 +31,8 @@ summary table.
 
 ## The one-line contract
 
-> Search each guest from the PDF by name in the PMS, open folio 1, read the
-> total charged and any "adjustment" lines, compare all PDF fields except
-> commission, and emit a simple 5-column PDF table:
+> Search each guest from the PDF by name in the PMS, resolve only unambiguous
+> reservations, calculate Folio 1 room charges plus associated taxes and signed
+> room-charge adjustments, compare the supported PDF fields except commission,
+> and emit a simple 5-column PDF table:
 > **Guest Name · Booking # · Account # · Total Charged · Notes**.
