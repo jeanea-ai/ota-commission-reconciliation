@@ -11,9 +11,25 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import parse_ota
 import verify_reservations as verify
 import build_report
+import pms_setup_bridge
 
 
 class SkillTests(unittest.TestCase):
+    def test_pms_setup_build_must_be_official_exact_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "BUILD.json").write_text(json.dumps({"version": "3.5.0"}), encoding="utf-8")
+            self.assertEqual("3.5.0", pms_setup_bridge.read_build(root)["version"])
+            (root / "BUILD.json").write_text(json.dumps({"version": "3.5.0-local.3", "warning": "do not install on a POD"}), encoding="utf-8")
+            with self.assertRaises(pms_setup_bridge.SetupBridgeError):
+                pms_setup_bridge.read_build(root)
+
+    def test_browser_adapter_is_skytouch_only(self):
+        source = (ROOT / "scripts" / "browser_adapter.mjs").read_text(encoding="utf-8").casefold()
+        self.assertIn("skytouchhos.com", source)
+        self.assertNotIn("choiceadvantage.com", source)
+        self.assertNotIn("ota_pms_password", source)
+
     def test_csv_preserves_duplicates_and_range(self):
         text = "Booking #,Guest Name,Check-in,Check-out,Booking amount,Commission amount,Status,Payment type,OTA\n1,Jane Doe,1/2/2026,1/4/2026,110.00,16.50,Stayed,VCC,Expedia\n1,Jane Doe,1/2/2026,1/4/2026,110.00,16.50,Stayed,VCC,Expedia\n"
         rows = parse_ota.parse_csv_text(text)
@@ -66,9 +82,9 @@ class SkillTests(unittest.TestCase):
             fixture = folder / "fixture.json"; fixture.write_text(json.dumps({"Doe": [{"account_number": "A1", "guest_name": "Jane Doe", "arrival": "2026-01-02", "departure": "2026-01-04", "status": "Checked Out", "folio_1": [{"description": "Room Charge", "amount": "100"}, {"description": "Room Tax", "amount": "10"}]}]}), encoding="utf-8")
             statuses = folder / "statuses.json"; statuses.write_text(json.dumps({"Stayed": ["Checked Out"]}), encoding="utf-8")
             output = folder / "results.json"
-            env = os.environ.copy(); env["OTA_FIXTURE_RESPONSES"] = str(fixture)
+            env = os.environ.copy(); env["OTA_FIXTURE_RESPONSES"] = str(fixture); env["OTA_ALLOW_TEST_MODE"] = "1"
             command = f'"{sys.executable}" "{ROOT / "tests" / "fixture_adapter.py"}"'
-            args = [sys.executable, str(ROOT / "scripts" / "verify_reservations.py"), str(source), "--hotel", "ABC", "--output", str(output), "--state-dir", str(folder / "state"), "--status-map", str(statuses), "--command", command]
+            args = [sys.executable, str(ROOT / "scripts" / "verify_reservations.py"), str(source), "--hotel", "ABC", "--output", str(output), "--state-dir", str(folder / "state"), "--status-map", str(statuses), "--command", command, "--skip-pms-setup-for-tests"]
             first = subprocess.run(args, env=env, capture_output=True, text=True)
             self.assertEqual(0, first.returncode, first.stderr)
             second = subprocess.run(args, env=env, capture_output=True, text=True)

@@ -2,8 +2,8 @@
 
 ## Goal
 
-Verify each reservation line on a provided OTA statement PDF against the live PMS
-(Choice Advantage / SkyTouch), **one reservation at a time**, by searching the guest
+Verify each reservation line on a provided OTA statement PDF against **SkyTouch PMS**,
+**one reservation at a time**, by searching the guest
 name and reading the reservation + guest folio. Not a bulk CSV join; no Hotel Journal
 Detail dependency.
 
@@ -27,11 +27,11 @@ Before searching the PMS, parse the complete statement and derive:
 
 Use that inclusive statement-wide date range for every guest-name search. The OTA
 booking number is authoritative from the PDF; do not search for or validate the OTA
-booking number in Choice Advantage.
+booking number in SkyTouch.
 
 ## Process — per line item
 
-1. **Search by name** in Choice Advantage (`Find > Reservation`) using the
+1. **Search by name** in SkyTouch (`Find > Reservation`) using the
    statement-wide date range, reading back every matching reservation record.
 2. **Resolve the search result conservatively**:
    - one matching reservation: continue with that reservation;
@@ -39,7 +39,7 @@ booking number in Choice Advantage.
      `Guest not found`;
    - multiple reservations with the same matching name/date criteria: do not choose
      one, do not combine totals, and do not open one arbitrarily. Emit the row as
-     `Needs attention` and list every candidate Choice Advantage account number in
+     `Needs attention` and list every candidate SkyTouch account number in
      Notes so the user can determine the correct reservation manually.
 3. **Compare the PDF fields supported by the PMS** against the selected reservation:
    guest name, check-in, check-out, result/status, and original amount. Commission is
@@ -48,7 +48,7 @@ booking number in Choice Advantage.
 4. **Always open the guest folio** for a single resolved reservation:
    - calculate the **folio 1 comparable room total** defined below;
    - detect any **"adjustment" line items** on folio 1.
-5. **Capture** the Choice Advantage account number.
+5. **Capture** the SkyTouch account number.
 
 ### Folio 1 amount used for comparison
 
@@ -70,8 +70,8 @@ not the folio balance and not the sum of every positive transaction.
 
 ### Status comparison
 
-Maintain an explicit, tested mapping between OTA status values and the actual Choice
-Advantage status labels observed during live verification. Until a PMS status has
+Maintain an explicit, tested mapping between OTA status values and the actual SkyTouch
+status labels observed during live verification. Until a PMS status has
 been mapped, do not guess that it is equivalent: mark the row `Needs attention` and
 add `Status needs review` to Notes.
 
@@ -79,7 +79,7 @@ add `Status needs review` to Notes.
 
 Columns (exactly these):
 
-| Guest Name | Booking # (PDF) | Account # (Choice) | Total Charged (folio 1) | Notes |
+| Guest Name | Booking # (PDF) | Account # (SkyTouch) | Total Charged (folio 1) | Notes |
 
 - **Every name in the PDF becomes a row** — not-found, cancelled, and no-show included.
 - Preserve duplicate source rows, including repeated guest names and booking numbers.
@@ -104,36 +104,38 @@ Columns (exactly these):
   and notify the Kolo user what happened and where processing stopped. A later run
   resumes without duplicating completed source rows.
 - Use an existing authenticated session when available. If it is absent, follow the
-  configured Kolo/Choice Advantage login procedure automatically; never ask the user
-  to perform the login. Credentials must come from configured secrets and must never
-  appear in logs, progress files, or reports.
-- The PDF may contain the full guest name, OTA booking number, and Choice Advantage
+  obtain an exact verified SkyTouch browser handoff from the official PMS Setup
+  package. PMS Setup alone owns credentials and login. This skill must never request,
+  read, store, or log credentials.
+- The PDF may contain the full guest name, OTA booking number, and SkyTouch
   account number required for reconciliation. Keep checkpoints private and minimize
   guest information in technical logs.
 
-## Live grounding (verified against a real Choice Advantage property)
+## SkyTouch grounding and qualification boundary
 
-Base URL: `https://www.choiceadvantage.com/choicehotels/`
+Approved base URL: `https://www.skytouchhos.com/pms/`
 
-### Login
+### Login and property identity
 
-Traditional login with a legacy username (`KUser.<code>`); password resolved from
-config/secrets (never hardcoded). After submit an Okta interstitial
-**"Migrate your account to Okta / Continue with Traditional Login"** appears — click the
-**"Continue"** link to proceed.
+The official `mf-hotel-pms-setup 3.5.0` package performs SkyTouch direct login with
+no MFA, verifies the exact `<code> - <hotel name>` property label, and returns a
+`skytouch-session-v1` handoff containing the exact browser target ID. This skill
+reconnects only to that target and independently rechecks the SkyTouch origin and
+property code. ChoiceADVANTAGE and Okta paths are out of scope.
 
 ### Reservation search by name
 
-- Navigate to `FindReservationInitialize.init` → form `FindReservationSearchForm`.
+- Candidate route: `/pms/FindReservationInitialize.init` and form
+  `FindReservationSearchForm`.
 - Set `searchLastName`, `searchFirstName`, `searchArrivalFromDate`, `searchArrivalToDate`
   (dates `M/D/YYYY`).
 - Trigger `lookUpProfileByAcctNo(true)`.
-- Result lands on `FindReservation.do` → "Reservation Information" showing:
+- Candidate result route: `/pms/FindReservation.do` and "Reservation Information":
   Account Number, Status, Arrival, Departure, Room Type, Room, Rate, Balance.
 
 ### Guest Folio
 
-- "Guest Folio" action → `GuestFolio.do`.
+- Candidate "Guest Folio" action: `/pms/GuestFolio.do`.
 - Folio 1 is the link labelled `1. Folio 1 - <balance>` (additional folios appear as
   `2. Folio 2`, …; incidentals folio labelled `INCI - <balance>`).
 - Line-items table columns: `Item # · Date · Posting Date · Description · Comments · Amount`.
@@ -145,6 +147,10 @@ config/secrets (never hardcoded). After submit an Okta interstitial
 - **"Adjustment"** = a line item whose `Description` contains "Adjustment" (the
   transaction type exists — "Post Adjustment" is an available folio action). These are
   the only rows that go into Notes under the "adjustment" heading.
+
+The reservation-search and folio routes/selectors above require confirmation during
+the first authorized SkyTouch manual run. An unfamiliar route, form, property label,
+or table structure fails closed rather than falling back to ChoiceADVANTAGE behavior.
 
 ### Worked example (synthetic)
 

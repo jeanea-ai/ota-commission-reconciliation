@@ -6,8 +6,8 @@ build contract.
 
 ## What to build
 
-Implement a CLI tool that verifies each OTA statement line against a live Choice
-Advantage PMS, one reservation at a time by name search, reading the guest folio,
+Implement a CLI tool that verifies each OTA statement line against live SkyTouch PMS,
+one reservation at a time by name search, reading the guest folio,
 and emits a simple PDF report. Replace the previous bulk-CSV-join /
 hotel-journal-detail approach entirely.
 
@@ -43,7 +43,7 @@ cancelled, and no-show):
    - no match: mark `Needs attention` and note `Guest not found`;
    - one match: continue;
    - multiple matching name/date reservations: mark `Needs attention`, list every
-     candidate Choice Advantage account number in Notes, leave Total Charged empty,
+     candidate SkyTouch account number in Notes, leave Total Charged empty,
      and do not select or combine reservations.
 4. For one resolved reservation, read account number, PMS status, arrival, departure,
    room type, room, and rate.
@@ -54,7 +54,7 @@ cancelled, and no-show):
 6. Compare guest name, check-in, check-out, mapped result/status, and OTA original
    amount. Report every absolute amount difference of $0.01 or more. Commission is
    not compared. Carry the OTA booking number from the PDF without looking for or
-   validating it in Choice Advantage.
+   validating it in SkyTouch.
 7. Emit a row: Guest Name | Booking # | Account # | Total Charged | Notes.
 
 **Notes column = (a) "adjustment" line items on Folio 1, (b) any mismatch or
@@ -66,7 +66,7 @@ For cancelled / no-show / not-found names, still emit a row; Total Charged and/o
 Account # may be empty.
 
 Use only an explicit, tested mapping for OTA/PMS status equivalence. During live
-testing, record the Choice Advantage labels actually observed. An unfamiliar status
+testing, record the SkyTouch labels actually observed. An unfamiliar status
 must produce `Status needs review` in Notes rather than an inferred match.
 
 Preserve duplicate input rows. Each source row must reach one durable terminal result
@@ -90,14 +90,15 @@ even when its guest name and booking number duplicate another row.
 - Use Kolo's available shared-browser control mechanism. In the reference environment,
   CDP target discovery is `http://127.0.0.1:18800/json`; keep the endpoint configurable
   rather than baking it into reconciliation logic.
-- Follow `SPEC.md` → "Live grounding" for exact URLs, form field names, the search
-  trigger (`lookUpProfileByAcctNo(true)`), the folio URL (`GuestFolio.do`), and the
+- Follow `SPEC.md` → "SkyTouch grounding and qualification boundary" for candidate
+  URLs, form field names, the search trigger (`lookUpProfileByAcctNo(true)`), the folio
+  URL (`GuestFolio.do`), and the
   folio table's `folioAmount` / `Description` semantics.
 - Date fields use `M/D/YYYY`.
-- Use an active authenticated session when available. Otherwise perform Kolo's
-  configured traditional-login flow and Okta "Continue" step automatically. Never
-  ask the user to log in. Read credentials from config/secrets; never hardcode or log
-  secrets.
+- Obtain an exact authenticated browser handoff from the official
+  `mf-hotel-pms-setup 3.5.0` SkyTouch adapter. Recheck the SkyTouch origin and property
+  label. This skill never performs login and never receives credentials. Choice and
+  Okta flows are out of scope.
 
 ## Constraints
 
@@ -109,7 +110,8 @@ even when its guest name and booking number duplicate another row.
   minimize guest information in diagnostic logs, and never include credentials.
 - Name the delivered report from the hotel code and statement month. If the statement
   spans months, use the inclusive first-to-last month range.
-- Do not publish, tag, install, or push anything. Produce local files only.
+- Repository commits and review-branch pushes are permitted when requested. Marketplace
+  publication remains a separate release action and requires all release gates.
 
 ## Acceptance test (small proof)
 

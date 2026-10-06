@@ -14,6 +14,8 @@ import tempfile
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+import pms_setup_bridge
+
 
 CENT = Decimal("0.01")
 PAYMENT_WORDS = ("payment", "deposit", "refund", "visa", "mastercard", "amex", "cash", "check")
@@ -190,22 +192,38 @@ def main() -> int:
     parser.add_argument("--hotel")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--command", default=os.getenv("OTA_PMS_COMMAND", default_adapter_command()))
-    parser.add_argument("--base-url", default=os.getenv("OTA_PMS_BASE_URL", ""))
+    parser.add_argument("--pms-setup-root", default=os.getenv("PMS_SETUP_SKILL_DIR", ""))
+    parser.add_argument("--cdp-url", default=os.getenv("KOLO_BROWSER_CDP_URL", os.getenv("OTA_CDP_ENDPOINT", "http://127.0.0.1:18800")))
     parser.add_argument("--status-map", default=os.getenv("OTA_STATUS_MAP", ""))
     parser.add_argument("--state-dir", type=Path, default=Path(os.getenv("OTA_STATE_DIR", ".state/ota-commission-reconciliation")))
     parser.add_argument("--timeout", type=int, default=45)
     parser.add_argument("--doctor", "--readiness", dest="doctor", action="store_true")
+    parser.add_argument("--skip-pms-setup-for-tests", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if not args.hotel:
+        parser.error("--hotel is required")
+    try:
+        if args.skip_pms_setup_for_tests:
+            if os.getenv("OTA_ALLOW_TEST_MODE") != "1":
+                raise pms_setup_bridge.SetupBridgeError("test handoff mode is disabled")
+            handoff = {"property_code": args.hotel.upper(), "target_id": "fixture-target"}
+        else:
+            handoff = pms_setup_bridge.handoff(
+                args.hotel, root_value=args.pms_setup_root, cdp_url=args.cdp_url
+            )
+    except pms_setup_bridge.SetupBridgeError as exc:
+        print(json.dumps({"ready": False, "error": str(exc)}))
+        return 2
     if args.doctor:
         try:
-            response = invoke(args.command, {"action": "doctor", "base_url": args.base_url}, args.timeout)
+            response = invoke(args.command, {"action": "doctor", **handoff}, args.timeout)
             print(json.dumps({"ready": bool(response.get("authenticated")), "pms": response.get("pms", "unknown")}))
             return 0 if response.get("authenticated") else 2
         except (AdapterError, subprocess.TimeoutExpired) as exc:
             print(json.dumps({"ready": False, "error": str(exc)}))
             return 2
-    if not args.input or not args.output or not args.hotel:
-        parser.error("input, --hotel, and --output are required unless --doctor is used")
+    if not args.input or not args.output:
+        parser.error("input and --output are required unless --doctor is used")
     data = json.loads(args.input.read_text(encoding="utf-8"))
     state_path = args.state_dir / f"{args.hotel}-{data['statement_id']}.json"
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {"schema_version": 1, "hotel": args.hotel, "statement_id": data["statement_id"], "results": {}}
@@ -216,7 +234,7 @@ def main() -> int:
         if row_id in state["results"]:
             continue
         first, last = split_name(str(row["guest_name"]))
-        request = {"action": "search_reservations", "base_url": args.base_url, "first_name": first, "last_name": last,
+        request = {"action": "search_reservations", **handoff, "first_name": first, "last_name": last,
                    "arrival_from": fmt_search_date(str(data["statement_start"])), "arrival_to": fmt_search_date(str(data["statement_end"]))}
         try:
             response = invoke(args.command, request, args.timeout)

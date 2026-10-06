@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-/* Read-only ChoiceADVANTAGE/SkyTouch adapter over Chrome DevTools Protocol. */
+/* Read-only SkyTouch adapter over Chrome DevTools Protocol. */
 
 import process from "node:process";
 
 const CDP_HTTP = (process.env.OTA_CDP_ENDPOINT || "http://127.0.0.1:18800").replace(/\/$/, "");
 const TIMEOUT_MS = Number(process.env.OTA_BROWSER_TIMEOUT_MS || 45000);
-const SEARCH_PATH = process.env.OTA_PMS_SEARCH_PATH || "FindReservationInitialize.init";
+const SKYTOUCH_BASE_URL = "https://www.skytouchhos.com/pms/";
+const SEARCH_PATH = process.env.OTA_SKYTOUCH_SEARCH_PATH || "FindReservationInitialize.init";
+const SKYTOUCH_HOSTS = new Set(["www.skytouchhos.com", "skytouchhos.com"]);
 
 function fail(message) {
   process.stdout.write(JSON.stringify({ ok: false, error: message }));
@@ -122,70 +124,41 @@ function assertSameOrigin(url, base) {
   return url;
 }
 
-async function connectPage(baseUrl) {
+async function connectPage(targetId) {
   const targets = await fetchJson(`${CDP_HTTP}/json`);
   const pages = targets.filter(target => target.type === "page" && target.webSocketDebuggerUrl);
-  if (!pages.length) throw new Error("Kolo shared browser has no open page target");
-  const origin = new URL(baseUrl).origin;
-  const target = pages.find(page => {
-    try { return new URL(page.url).origin === origin; } catch { return false; }
-  }) || pages.at(-1);
+  const target = pages.find(page => String(page.id || page.targetId || "") === targetId);
+  if (!target) throw new Error("PMS Setup's verified SkyTouch browser tab is no longer available");
+  const parsed = new URL(target.url);
+  if (parsed.protocol !== "https:" || !SKYTOUCH_HOSTS.has(parsed.hostname) || !parsed.pathname.startsWith("/pms/")) {
+    throw new Error("PMS Setup's browser handoff is not on an approved SkyTouch page");
+  }
   const client = new CDP(target.webSocketDebuggerUrl);
   await client.open();
   return client;
 }
 
-async function loginIfNeeded(client, baseUrl) {
-  for (let pass = 0; pass < 3; pass++) {
-    const state = await client.evaluate(`(() => ({url:location.href, hasPassword:!!document.querySelector('input[type=password]'), text:(document.body?.innerText||'').slice(0,4000)}))()`);
-    if (state.hasPassword) {
-      const username = process.env.OTA_PMS_USERNAME || "";
-      const password = process.env.OTA_PMS_PASSWORD || "";
-      if (!username || !password) throw new Error("PMS session is signed out and configured login secrets are unavailable");
-      await client.evaluate(pageScript(({ username: user, password: secret }) => {
-        const visible = element => !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
-        const userInput = [...document.querySelectorAll('input')].find(el => visible(el) && /user|login|email/i.test(`${el.name} ${el.id} ${el.autocomplete}`));
-        const passwordInput = [...document.querySelectorAll('input[type=password]')].find(visible);
-        if (!userInput || !passwordInput) throw new Error('login fields not found');
-        const set = (element, value) => {
-          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-          setter.call(element, value);
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-        };
-        set(userInput, user); set(passwordInput, secret);
-        const form = passwordInput.form || userInput.form;
-        if (form?.requestSubmit) form.requestSubmit(); else if (form) form.submit();
-        else document.querySelector('button[type=submit],input[type=submit]')?.click();
-        return true;
-      }, { username, password }));
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await client.ready();
-      continue;
-    }
-    if (/continue with traditional login/i.test(state.text)) {
-      await client.evaluate(`(() => { const el=[...document.querySelectorAll('a,button,input[type=button],input[type=submit]')].find(e=>/continue(?:\s+with)?\s+traditional\s+login/i.test(e.innerText||e.value||'')); if(!el) throw new Error('traditional login continuation not found'); el.click(); return true; })()`);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      await client.ready();
-      continue;
-    }
-    if (new URL(state.url).origin !== new URL(baseUrl).origin) throw new Error("shared browser is not on the configured PMS origin");
-    return;
+async function verifyHandoff(client, propertyCode) {
+  const snapshot = await client.evaluate(`(() => ({url:location.href,text:document.body?.innerText||'',hasLogout:[...document.querySelectorAll('a,button')].some(e=>/^logout$/i.test((e.innerText||'').trim()))}))()`);
+  const parsed = new URL(snapshot.url);
+  if (parsed.protocol !== "https:" || !SKYTOUCH_HOSTS.has(parsed.hostname) || !parsed.pathname.startsWith("/pms/")) {
+    throw new Error("The handed-off browser tab left SkyTouch");
   }
-  throw new Error("automatic PMS login did not reach an authenticated page");
+  if (!snapshot.hasLogout) throw new Error("The handed-off SkyTouch session is not authenticated");
+  const labels = snapshot.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+    .filter(line => /^[A-Za-z0-9][A-Za-z0-9_-]{1,23}\s+-\s+.+$/.test(line));
+  if (labels.length !== 1 || !labels[0].toUpperCase().startsWith(`${propertyCode.toUpperCase()} - `)) {
+    throw new Error("The handed-off SkyTouch property label does not match the requested hotel");
+  }
 }
 
 async function openSearch(client, baseUrl) {
   const searchUrl = joinUrl(baseUrl, SEARCH_PATH);
   await client.goto(searchUrl);
-  await loginIfNeeded(client, baseUrl);
   let ready = await client.evaluate(`!!document.querySelector('[name=searchLastName]')`);
   if (!ready) {
-    await client.goto(searchUrl);
-    await loginIfNeeded(client, baseUrl);
-    ready = await client.evaluate(`!!document.querySelector('[name=searchLastName]')`);
+    throw new Error("SkyTouch reservation search form was not found; the page layout or permission may have changed");
   }
-  if (!ready) throw new Error("PMS reservation search form was not found; the page layout may have changed");
 }
 
 async function submitSearch(client, request) {
@@ -269,16 +242,17 @@ async function extractReservation(client, candidate, baseUrl) {
 }
 
 async function handle(request) {
-  if (!request.base_url) throw new Error("base_url is required");
-  const client = await connectPage(request.base_url);
+  if (!request.target_id || !request.property_code) throw new Error("verified SkyTouch handoff is required");
+  const client = await connectPage(request.target_id);
   try {
-    await openSearch(client, request.base_url);
-    if (request.action === "doctor") return { ok: true, authenticated: true, pms: "choiceadvantage-skytouch" };
+    await verifyHandoff(client, request.property_code);
+    await openSearch(client, SKYTOUCH_BASE_URL);
+    if (request.action === "doctor") return { ok: true, authenticated: true, pms: "skytouch", property_code: request.property_code };
     if (request.action !== "search_reservations") throw new Error(`unsupported action ${request.action}`);
     await submitSearch(client, request);
-    const candidates = await extractCandidates(client, request.base_url);
+    const candidates = await extractCandidates(client, SKYTOUCH_BASE_URL);
     const reservations = [];
-    for (const candidate of candidates) reservations.push(await extractReservation(client, candidate, request.base_url));
+    for (const candidate of candidates) reservations.push(await extractReservation(client, candidate, SKYTOUCH_BASE_URL));
     return { ok: true, reservations };
   } finally {
     client.close();

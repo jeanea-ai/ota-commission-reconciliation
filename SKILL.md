@@ -1,58 +1,56 @@
 ---
 name: ota-commission-reconciliation
-version: 0.1.0
-description: Reconcile Expedia and Booking.com statement PDFs against ChoiceADVANTAGE or SkyTouch reservations and Folio 1, producing a five-column PDF report. Use when a Kolo user requests OTA commission or reservation reconciliation for these PMS variants.
+version: 0.7.0
+description: Reconcile Expedia and Booking.com statement PDFs against SkyTouch reservations and Folio 1, producing a five-column PDF report. Use only for SkyTouch properties; do not use for ChoiceADVANTAGE or another PMS.
+requires: [mf-hotel-pms-setup]
+tags: [hotel, skytouch, expedia, booking.com, ota, reconciliation, pdf]
+author: Kolo Hotels
 ---
 
-# OTA commission reconciliation
+# SkyTouch OTA commission reconciliation
 
-Run this skill only on demand. The Python commands own parsing, arithmetic,
-checkpointing, matching outcomes, and report generation; do not reproduce those
-steps conversationally or use a model to calculate money.
+Run this skill on demand for a property already configured as `pms.vendor:
+skytouch` by the official `mf-hotel-pms-setup` 3.5.0 marketplace package.
+This skill does not support ChoiceADVANTAGE and must never attach to a Choice tab.
 
-## Required configuration
+The deterministic commands own statement parsing, arithmetic, checkpointing,
+matching outcomes, and report generation. No model calculates money or chooses an
+ambiguous reservation.
 
-- `OTA_PMS_COMMAND`: optional executable override for the included authenticated
-  shared-browser adapter. See `references/browser-adapter.md`.
-- `OTA_PMS_BASE_URL`: the property's ChoiceADVANTAGE or SkyTouch base URL. URLs
-  are configuration, not reconciliation logic.
-- `OTA_CDP_ENDPOINT`: optional Kolo shared-browser discovery endpoint. Defaults to
-  `http://127.0.0.1:18800`.
-- `OTA_STATUS_MAP`: optional path to a reviewed JSON status map. Unknown status
-  pairs are always flagged for review.
-- `OTA_STATE_DIR`: optional private checkpoint directory. Defaults to
-  `.state/ota-commission-reconciliation` beneath the current working directory.
+## Authentication boundary
 
-Credentials belong to Kolo's secret configuration. When the shared session is
-signed out, the adapter reads `OTA_PMS_USERNAME` and `OTA_PMS_PASSWORD` from that
-secret environment and completes traditional login automatically. Never request,
-print, or store them in skill files.
+`scripts/pms_setup_bridge.py` invokes PMS Setup's `tools/skytouch_login.py
+--handoff`. PMS Setup owns credentials, direct no-MFA login, property verification,
+and the exact authenticated browser target. This skill receives only the
+`skytouch-session-v1` handoff, then rechecks the SkyTouch origin and property label.
+
+Never request, read, copy, or store a password. Never use a ChoiceADVANTAGE or Okta
+credential path. Refuse local-only or version-mismatched PMS Setup packages.
 
 ## Run
 
-1. Parse the supplied Expedia or Booking.com PDF:
+1. Parse an exported Expedia or Booking.com statement:
 
-   `python scripts/parse_ota.py statement.pdf --output parsed.json`
+   `python3 scripts/parse_ota.py statement.pdf --output parsed.json`
 
-2. Verify every source row against the PMS:
+2. Verify every source row against SkyTouch:
 
-   `python scripts/verify_reservations.py parsed.json --hotel HOTELCODE --output results.json`
+   `python3 scripts/verify_reservations.py parsed.json --hotel HOTELCODE --output results.json`
 
-3. Build the final or partial report:
+3. Build the complete or partial report:
 
-   `python scripts/build_report.py results.json --output-dir reports`
+   `python3 scripts/build_report.py results.json --output-dir reports`
 
-Return only the generated PDF to the user. Working JSON, HTML, checkpoints, and
-diagnostics remain private.
+Return only the generated PDF. Working JSON, HTML, checkpoints, and diagnostics
+remain private.
 
-## Non-negotiable behavior
+## Required behavior
 
 - Preserve every input row, including duplicates, cancellations, and no-shows.
-- Use the full statement's earliest arrival through latest departure for every
-  name search.
-- Never choose among multiple plausible reservations. List all candidate account
-  numbers in Notes and continue.
-- Carry the OTA booking number from the statement; do not seek it in the PMS.
+- Use the statement's earliest arrival through latest departure for every search.
+- Never choose among multiple plausible reservations. List candidate SkyTouch
+  account numbers in Notes and continue.
+- Carry the OTA booking number from the statement; do not seek it in SkyTouch.
 - Compare the OTA amount only with Folio 1 room charges, related taxes, and signed
   room-related adjustments. Exclude deposits, payments, refunds, and unrelated
   adjustments. Flag uncertain classifications.
@@ -60,12 +58,15 @@ diagnostics remain private.
 - Checkpoint only complete rows, atomically. Resume by stable statement/source-row
   identity, not guest name or booking number.
 - After bounded safe recovery, turn a run-blocking failure into one plain-language
-  Kolo question with a recommended next step. Do not emit progress chatter.
+  owner question with a recommended next step. Do not send progress chatter.
 
-## Validation and recovery
+## Readiness and release gate
 
-Run `python -m unittest discover -s tests -v` before packaging. The readiness
-command `python scripts/verify_reservations.py --readiness` validates the browser adapter
-without changing PMS data. Browser operations are read-only, but an uncertain navigation
-must be reconciled by reading current state before replay.
+Run `python3 scripts/verify_reservations.py --hotel HOTELCODE --readiness`. It must
+prove an official PMS Setup 3.5.0 package, a verified SkyTouch handoff, the exact
+SkyTouch property, and the reservation search form without processing a statement.
+
+Before publication, run `python3 -m unittest discover -s tests -v`, the Kolo static
+audit, source-manifest verification, and a secret scan. Live SkyTouch selectors,
+retry, resume, and partial-report behavior remain a manual qualification gate.
 

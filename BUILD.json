@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "name": "ota-commission-reconciliation",
+  "version": "0.7.0",
+  "build_id": "ota-skytouch-0.7.0-20261006T200022Z",
+  "built_at_utc": "2026-10-06T20:00:22Z",
+  "source_manifest_file": "SOURCE-MANIFEST.sha256",
+  "source_manifest_format": "standard sha256sum lines, paths relative to the package root",
+  "source_manifest_sha256": "92d282ae227e0e9984fc0a346971b4d0c98b3992b7563b2954f6586f0ca37601",
+  "source_manifest_file_count": 17,
+  "source_manifest_excludes": [
+    "BUILD.json and SOURCE-MANIFEST.sha256 are excluded to avoid self-reference",
+    ".git/",
+    "__pycache__/",
+    ".clawhub/",
+    "tmp/"
+  ],
+  "requires": {
+    "mf-hotel-pms-setup": "3.5.0"
+  },
+  "changes": [
+    "Make the skill SkyTouch-only and reject ChoiceADVANTAGE browser targets.",
+    "Delegate credentials, direct no-MFA login, and property identity to the official PMS Setup SkyTouch handoff.",
+    "Recheck the exact handed-off target, SkyTouch origin, authenticated session, and property code before navigation.",
+    "Support exported Expedia and Booking.com statements with durable row checkpoints and five-column PDF output."
+  ],
+  "qualification": {
+    "local_contract_tests": "pass: 9 tests covering SkyTouch-only browser source, official PMS Setup version gate, duplicate rows, money, dates, status review, ambiguity, resume, and report headers",
+    "node_syntax": "pass",
+    "python_compile": "pass",
+    "live_skytouch_run": "required before production use; reservation search, Folio 1 selectors, retry, resume, and partial delivery remain unverified live"
+  }
+}
