@@ -1,0 +1,5 @@
+Booking #,Guest Name,Check-in,Check-out,Booking amount,Commission amount,Status,Payment type,OTA
+E1001,Jane Doe,1/2/2026,1/4/2026,110.00,16.50,Stayed,VCC,Expedia
+E1002,Missing Guest,1/5/2026,1/6/2026,90.00,13.50,Stayed,VCC,Expedia
+E1003,Alex Smith,1/7/2026,1/9/2026,220.00,33.00,Stayed,VCC,Expedia
+E1001,Jane Doe,1/2/2026,1/4/2026,110.00,16.50,Stayed,VCC,Expedia

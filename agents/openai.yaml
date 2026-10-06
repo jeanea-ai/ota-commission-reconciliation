@@ -1,0 +1,5 @@
+interface:
+  display_name: "OTA Commission Reconciliation"
+  short_description: "Reconcile OTA statements against SkyTouch"
+  default_prompt: "Use $ota-commission-reconciliation to reconcile this Expedia or Booking.com statement against the configured PMS."
+

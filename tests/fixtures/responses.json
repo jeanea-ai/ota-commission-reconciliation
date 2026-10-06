@@ -1,0 +1,19 @@
+{
+  "Doe": [{
+    "account_number": "1000000001",
+    "guest_name": "Jane Doe",
+    "arrival": "2026-01-02",
+    "departure": "2026-01-04",
+    "status": "Checked Out",
+    "folio_1": [
+      {"description": "Room Charge", "comments": "", "amount": "100.00"},
+      {"description": "Room Tax", "comments": "", "amount": "10.00"},
+      {"description": "Visa Payment", "comments": "", "amount": "-110.00"}
+    ]
+  }],
+  "Guest": [],
+  "Smith": [
+    {"account_number": "1000000002", "guest_name": "Alex Smith", "arrival": "2026-01-07", "departure": "2026-01-09", "status": "Checked Out", "folio_1": []},
+    {"account_number": "1000000003", "guest_name": "Alex Smith", "arrival": "2026-01-07", "departure": "2026-01-09", "status": "Checked Out", "folio_1": []}
+  ]
+}

@@ -1,38 +1,37 @@
-# OTA Commission Reconciliation — Specification Package
+# OTA Commission Reconciliation
 
-This repository is a **specification + build brief** for implementing the
-`ota-commission-reconciliation` skill. It is intentionally code-free: the
-expected outcome is that a coding agent (e.g. OpenAI Codex) reads the spec and
-brief and writes the implementation from them.
+Kolo skill for reconciling Expedia and Booking.com statement rows against
+ChoiceADVANTAGE or SkyTouch. The PMS products share the same workflow; each property
+supplies its own base URL through configuration.
 
-> **Privacy note:** real guest names, account numbers, and booking numbers have
-> been replaced with synthetic examples throughout. No guest PII is present.
+The skill parses the statement, searches every guest, reads Folio 1, compares room
+charges and associated taxes, preserves ambiguous and missing reservations for
+review, checkpoints completed rows, and produces a five-column PDF.
 
-## What this skill does
+## Package
 
-Verify every reservation line on an OTA (Expedia / Booking.com) statement PDF
-against the live **Choice Advantage / SkyTouch** PMS, **one reservation at a
-time**, by searching the guest's name and reading that reservation's guest
-folio. It confirms the numbers on the PDF are accurate and reports a clean
-summary table.
+- `SKILL.md` - Kolo entrypoint and operating contract.
+- `scripts/parse_ota.py` - Expedia/Booking.com PDF and CSV parser.
+- `scripts/browser_adapter.mjs` - authenticated shared-browser automation over CDP.
+- `scripts/verify_reservations.py` - matching, Folio 1 calculation, comparison, and checkpoints.
+- `scripts/build_report.py` - five-column PDF report generator.
+- `references/browser-adapter.md` - browser protocol and configuration.
+- `tests/` - deterministic fixtures and unit/integration coverage.
+- `SPEC.md` - authoritative business requirements and verified PMS screen details.
 
-Ambiguous matches are never guessed: when multiple reservations match the same
-name/date criteria, the report lists every candidate Choice Advantage account
-number and marks the row for review. Runs checkpoint completed source rows,
-deliver a partial PDF if interrupted, and resume without dropping duplicate
-statement rows.
+## Runtime configuration
 
-## Documents
+Set the property base URL as `OTA_PMS_BASE_URL`. The included adapter uses
+`OTA_CDP_ENDPOINT`, defaulting to `http://127.0.0.1:18800`. Kolo should provide
+`OTA_PMS_USERNAME` and `OTA_PMS_PASSWORD` as secrets when the shared browser does not
+already have an authenticated session. See `SKILL.md` for execution commands.
 
-| File | Purpose |
-|---|---|
-| [`SPEC.md`](SPEC.md) | The design: goal, process, output, and the **live-verified** grounding of the Choice Advantage search + folio screens (exact URLs, form field names, DOM structure, transaction semantics). |
-| [`TASK_BRIEF.md`](TASK_BRIEF.md) | The concrete build contract for the coding agent: files to create, functional requirements, constraints, and the acceptance test. |
+## Local checks
 
-## The one-line contract
+```text
+python -m unittest discover -s tests -v
+python scripts/verify_reservations.py --readiness
+```
 
-> Search each guest from the PDF by name in the PMS, resolve only unambiguous
-> reservations, calculate Folio 1 room charges plus associated taxes and signed
-> room-charge adjustments, compare the supported PDF fields except commission,
-> and emit a simple 5-column PDF table:
-> **Guest Name · Booking # · Account # · Total Charged · Notes**.
+Live PMS behavior must be confirmed manually against an authorized property before
+the skill is trusted for production reconciliation.
